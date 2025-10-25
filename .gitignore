@@ -84,6 +84,26 @@ htmlcov/
 Thumbs.db
 .DS_Store
 
-# Ngrok
+# Binary and Large Files
+*.exe
+cloudflared.exe
 ngrok
 ngrok.exe
+*.bin
+*.dll
+*.so
+*.dylib
+
+# Large Media Files
+*.mp4
+*.mov
+*.wmv
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.iso
