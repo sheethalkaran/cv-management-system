@@ -108,8 +108,3 @@ cv-management-system/
 
 This project is for demonstration and portfolio purposes.
 
----
-
-## License
-
-This project is for demonstration and portfolio purposes.
