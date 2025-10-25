@@ -1,0 +1,35 @@
+# Core Web Framework
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# Twilio WhatsApp API
+twilio==8.11.0
+
+# OpenAI API
+openai==1.12.0
+
+# PDF Processing
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+
+# DOCX Processing
+python-docx==1.1.0
+
+# Google Sheets and Drive API
+gspread==5.12.4
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Data Processing
+pandas==2.1.4
+
+# Additional Dependencies
+Pillow==10.2.0
+cryptography==42.0.0
