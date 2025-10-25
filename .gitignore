@@ -84,6 +84,16 @@ htmlcov/
 Thumbs.db
 .DS_Store
 
+# Setup and Configuration Scripts
+setup.sh
+*.sh
+install.sh
+configure.sh
+*.bat
+*.cmd
+setup.ps1
+*.ps1
+
 # Binary and Large Files
 *.exe
 cloudflared.exe
