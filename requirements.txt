@@ -33,3 +33,5 @@ pandas==2.1.4
 # Additional Dependencies
 Pillow==10.2.0
 cryptography==42.0.0
+
+gunicorn==21.2.0
