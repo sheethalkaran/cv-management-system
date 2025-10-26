@@ -130,19 +130,18 @@ def process_cv_data(cv_data, message_data):
             # Build confirmation message based on update status
             if is_update:
                 # This is an update - show "Updated" message
-                confirmation_msg = f"""🔄 *Resume Updated Successfully!*
+                confirmation_msg = f"""✅ *Resume Updated Successfully*
 
-📋 Basic Information:
-• Name: {cv_data.get('name', 'N/A')}
-• Email: {cv_data.get('email', 'N/A')}
-• Phone: {cv_data.get('phone', 'N/A')}"""
+Name: {cv_data.get('name', 'N/A')}
+Email: {cv_data.get('email', 'N/A')}
+Phone: {cv_data.get('phone', 'N/A')}"""
                 
                 # Add extracted fields summary (only if not N/A)
                 extracted_items = []
                 
                 if cv_data.get('skills') and cv_data['skills'] != 'N/A':
                     skill_count = len([s.strip() for s in cv_data['skills'].split(',') if s.strip()])
-                    extracted_items.append(f"Skills ({skill_count} skills)")
+                    extracted_items.append(f"Skills({skill_count})")
                 
                 if cv_data.get('experience') and cv_data['experience'] != 'N/A' and cv_data['experience'] != 'Fresher (No work experience)':
                     extracted_items.append("Work Experience")
@@ -154,25 +153,24 @@ def process_cv_data(cv_data, message_data):
                     extracted_items.append("Location")
                 
                 if extracted_items:
-                    confirmation_msg += f"\n\n✅ Extracted: {', '.join(extracted_items)}"
+                    confirmation_msg += f"\n\n*Information Extracted:*\n{', '.join(extracted_items)}"
                 
-                confirmation_msg += "\n\nYour updated information has been recorded. We'll contact you soon!"
+                confirmation_msg += "\n\nYour updated information has been recorded successfully. Our team will review your application and contact you shortly.\n\nThank you."
                 
             else:
                 # This is a new submission
-                confirmation_msg = f"""✅ *Resume Received Successfully!*
+                confirmation_msg = f"""✅ *Resume Received Successfully*
 
-📋 Basic Information:
-• Name: {cv_data.get('name', 'N/A')}
-• Email: {cv_data.get('email', 'N/A')}
-• Phone: {cv_data.get('phone', 'N/A')}"""
+Name: {cv_data.get('name', 'N/A')}
+Email: {cv_data.get('email', 'N/A')}
+Phone: {cv_data.get('phone', 'N/A')}"""
                 
                 # Add extracted fields summary (only if not N/A)
                 extracted_items = []
                 
                 if cv_data.get('skills') and cv_data['skills'] != 'N/A':
                     skill_count = len([s.strip() for s in cv_data['skills'].split(',') if s.strip()])
-                    extracted_items.append(f"Skills ({skill_count} skills)")
+                    extracted_items.append(f"Skills ({skill_count})")
                 
                 if cv_data.get('experience') and cv_data['experience'] != 'N/A' and cv_data['experience'] != 'Fresher (No work experience)':
                     extracted_items.append("Work Experience")
@@ -184,7 +182,7 @@ def process_cv_data(cv_data, message_data):
                     extracted_items.append("Location")
                 
                 if extracted_items:
-                    confirmation_msg += f"\n\n✅ Extracted: {', '.join(extracted_items)}"
+                    confirmation_msg += f"\n\n*Information Extracted:*\n{', '.join(extracted_items)}"
                 
                 # Check if anything is missing
                 if has_optional_missing:
@@ -197,9 +195,9 @@ def process_cv_data(cv_data, message_data):
                         missing_items.append("Education")
                     
                     if missing_items:
-                        confirmation_msg += f"\n\n📝 *Tip:* To complete your profile, you can send us your {', '.join(missing_items)} details or upload a complete resume."
+                        confirmation_msg += f"\n\n*Note:* For a complete profile, please provide your {', '.join(missing_items)} details or upload a comprehensive resume."
                 
-                confirmation_msg += "\n\nYour application has been recorded. We'll contact you soon!"
+                confirmation_msg += "\n\nYour application has been recorded successfully. Our team will review your application and contact you shortly.\n\nThank you."
             
             whatsapp_handler.send_message(
                 to_number=message_data['from'],
@@ -418,7 +416,7 @@ def webhook():
                 logger.error("Failed to download media file")
                 whatsapp_handler.send_message(
                     to_number=message_data['from'],
-                    message="Sorry, I couldn't download your resume. Please try again."
+                    message="We were unable to download your file. Please ensure the file format is PDF or DOCX and try again.\n\nThank you."
                 )
                 return jsonify({"status": "download_failed"}), 200
             
@@ -431,7 +429,7 @@ def webhook():
                 logger.error("Failed to extract text from file")
                 whatsapp_handler.send_message(
                     to_number=message_data['from'],
-                    message="Sorry, I couldn't read your resume. Please ensure it's a PDF or DOCX file."
+                    message="We were unable to extract information from your resume. Please ensure your file is a valid PDF or DOCX document with readable text.\n\nThank you."
                 )
                 return jsonify({"status": "extraction_failed"}), 200
             
@@ -444,7 +442,7 @@ def webhook():
                 logger.error("Failed to extract structured data from CV")
                 whatsapp_handler.send_message(
                     to_number=message_data['from'],
-                    message="Sorry, I couldn't extract information from your resume. Please ensure it contains clear details."
+                    message="We were unable to extract information from your resume. Please ensure your resume contains clear details about your qualifications and experience.\n\nThank you."
                 )
                 return jsonify({"status": "parsing_failed"}), 200
             
@@ -486,36 +484,46 @@ def webhook():
                     logger.warning(f"CV data validation failed. Missing: {missing_fields}")
                     whatsapp_handler.send_message(
                         to_number=message_data['from'],
-                        message="""❌ I couldn't extract your information. Please use this format:
+                        message="""Unable to process your information. Please ensure you provide the following mandatory details:
 
+*Required Information:*
+• Name (Full Name)
+• Email OR Phone Number (at least one)
+
+*Recommended Format:*
 Name: Your Full Name
 Email: your.email@example.com
-Phone: 1234567890
+Phone: Your Phone Number
 Skills: skill1, skill2, skill3
-Experience: Company Name - Position (Year - Year)
-Education: Degree, University, Year
+Experience: Company Name - Position
+Education: Degree, Institution
 
-*Note: Name and at least one of (Email OR Phone) are mandatory.*
+Alternatively, you may upload your complete resume as a PDF or DOCX file.
 
-Or send your resume as a PDF/DOCX file."""
+Thank you."""
                     )
             else:
                 # Extraction completely failed
                 logger.error("Failed to extract any data from text")
                 whatsapp_handler.send_message(
                     to_number=message_data['from'],
-                    message="""❌ I couldn't extract your information. Please use this format:
+                    message="""Unable to process your information. Please ensure you provide the following mandatory details:
 
+*Required Information:*
+• Name (Full Name)
+• Email OR Phone Number (at least one)
+
+*Recommended Format:*
 Name: Your Full Name
 Email: your.email@example.com
-Phone: 1234567890
+Phone: Your Phone Number
 Skills: skill1, skill2, skill3
-Experience: Company Name - Position (Year - Year)
-Education: Degree, University, Year
+Experience: Company Name - Position
+Education: Degree, Institution
 
-*Note: Name and at least one of (Email OR Phone) are mandatory.*
+Alternatively, you may upload your complete resume as a PDF or DOCX file.
 
-Or send your resume as a PDF/DOCX file."""
+Thank you."""
                 )
             
             return jsonify({"status": "success"}), 200
@@ -525,23 +533,25 @@ Or send your resume as a PDF/DOCX file."""
             logger.info("Empty message - sending welcome")
             whatsapp_handler.send_message(
                 to_number=message_data['from'],
-                message="""👋 Welcome to our CV Management System!
+                message="""Welcome to our Recruitment Portal.
 
-You can submit your resume in two ways:
+You can submit your application in two ways:
 
-1️⃣ Upload your resume as a PDF or DOCX file
-2️⃣ Type your details directly in this format:
+*Method 1:* Upload your resume (PDF or DOCX format)
+*Method 2:* Send your details in the following format:
 
 Name: Your Full Name
 Email: your.email@example.com
-Phone: 1234567890
+Phone: Your Phone Number
 Skills: skill1, skill2, skill3
-Experience: Company Name - Position
-Education: Degree, University
+Experience: Company Name - Position (Year - Year)
+Education: Degree, Institution, Year
 
-*Minimum required: Name + (Email OR Phone)*
+*Minimum Required:* Name and at least one contact method (Email or Phone)
 
-Please send your information to proceed with your application."""
+Please proceed with your application submission.
+
+Thank you."""
             )
         
         return jsonify({"status": "success"}), 200
