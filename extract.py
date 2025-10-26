@@ -1,6 +1,6 @@
 """
 CV Extraction Module
-Extracts text from files and uses AI to parse CV data
+Extracts text from files and uses AI to parse CV data with smart name validation
 """
 
 import os
@@ -14,6 +14,115 @@ import docx
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def extract_name_from_email(email: str) -> str:
+    """
+    Extract potential name from email address
+    
+    Examples:
+        john.doe@gmail.com -> John Doe
+        johndoe123@gmail.com -> Johndoe
+        ravi.kumar@email.com -> Ravi Kumar
+    
+    Args:
+        email: Email address
+        
+    Returns:
+        str: Extracted name or empty string
+    """
+    if not email or email == 'N/A' or '@' not in email:
+        return ""
+    
+    try:
+        # Get the part before @
+        local_part = email.split('@')[0]
+        
+        # Remove numbers and special characters except dot
+        clean_part = re.sub(r'[0-9_\-]', '', local_part)
+        
+        # Split by dots: john.doe -> ['john', 'doe']
+        if '.' in clean_part:
+            parts = clean_part.split('.')
+        # Handle camelCase: johnDoe -> ['john', 'Doe']
+        else:
+            parts = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\b)', clean_part)
+        
+        # Filter out very short parts (likely initials or noise)
+        meaningful_parts = [p for p in parts if len(p) >= 2]
+        
+        if meaningful_parts:
+            # Title case each part and join
+            name = ' '.join(p.title() for p in meaningful_parts)
+            logger.info(f"✓ Extracted name from email: {name}")
+            return name
+        
+        return ""
+    
+    except Exception as e:
+        logger.error(f"Error extracting name from email: {str(e)}")
+        return ""
+
+
+def validate_name_with_email(extracted_name: str, email: str) -> tuple:
+    """
+    Validate extracted name against email and suggest corrections
+    
+    Args:
+        extracted_name: Name extracted from CV
+        email: Email address
+        
+    Returns:
+        tuple: (is_valid, confidence_score, suggested_name, reason)
+    """
+    if not email or email == 'N/A' or '@' not in email:
+        return True, 50, extracted_name, "No email to validate against"
+    
+    if not extracted_name or extracted_name == 'N/A':
+        # Try to extract from email
+        email_name = extract_name_from_email(email)
+        if email_name:
+            return False, 70, email_name, "Name extracted from email"
+        return False, 0, "N/A", "No name found"
+    
+    try:
+        # Clean extracted name for comparison
+        name_parts = extracted_name.lower().split()
+        email_local = email.split('@')[0].lower()
+        
+        # Remove numbers and special chars from email
+        clean_email = re.sub(r'[0-9_\-.]', ' ', email_local).strip()
+        email_parts = clean_email.split()
+        
+        # Check if name parts appear in email
+        matches = 0
+        for name_part in name_parts:
+            for email_part in email_parts:
+                # Check if name part is in email part or vice versa (min 3 chars)
+                if len(name_part) >= 3 and len(email_part) >= 3:
+                    if name_part in email_part or email_part in name_part:
+                        matches += 1
+                        break
+        
+        # Calculate confidence
+        if len(name_parts) == 0:
+            confidence = 0
+        else:
+            confidence = int((matches / len(name_parts)) * 100)
+        
+        if confidence >= 50:
+            return True, confidence, extracted_name, f"Name matches email ({matches}/{len(name_parts)} parts)"
+        else:
+            # Try to extract better name from email
+            email_name = extract_name_from_email(email)
+            if email_name and email_name.lower() != extracted_name.lower():
+                return False, confidence, email_name, f"Name doesn't match email. Suggested: {email_name}"
+            else:
+                return True, confidence, extracted_name, "Low confidence but no better alternative"
+    
+    except Exception as e:
+        logger.error(f"Error validating name: {str(e)}")
+        return True, 50, extracted_name, "Validation error"
 
 
 class CVExtractor:
@@ -117,7 +226,7 @@ class CVExtractor:
     
     def extract_cv_data(self, cv_text: str) -> Optional[Dict]:
         """
-        Extract structured CV data using OpenAI API
+        Extract structured CV data using OpenAI API with enhanced name validation
         
         Args:
             cv_text: Raw CV text
@@ -126,20 +235,34 @@ class CVExtractor:
             dict: Structured CV data
         """
         try:
-            # Create enhanced prompt for comprehensive skills extraction
+            # Create enhanced prompt with email-based name validation
             system_prompt = """You are an expert CV/Resume parser specializing in comprehensive skills extraction for the tech industry. Extract information ACCURATELY and return ONLY a valid JSON object.
 
 CRITICAL EXTRACTION RULES:
 
-1. NAME: 
+1. NAME (MOST IMPORTANT - USE EMAIL TO HELP): 
    - Extract ONLY the candidate's full name (first + last name)
    - Format in Title Case (e.g., "John Smith" not "JOHN SMITH")
    - Usually at the TOP of the CV in large/bold text
    - DO NOT confuse with company names or locations
+   
+   **IMPORTANT: Use EMAIL to validate name**
+   Examples:
+   - If email is "john.doe@gmail.com" and you see "John Doe" → CORRECT
+   - If email is "john.doe@gmail.com" and you see "ABC Company" → WRONG (that's company name)
+   - If email is "ravi.kumar@email.com" and you see "Ravi" → probably incomplete, look for "Ravi Kumar"
+   - If you can't find a clear name, extract it from email: "john.doe@gmail.com" → "John Doe"
+   
+   **Name Validation Checklist:**
+   ✓ Does the name make sense with the email address?
+   ✓ Is it 2-4 words (first + last name, possibly middle)?
+   ✓ Is it at the top of the resume?
+   ✓ Does it look like a person's name, not a company/location?
 
 2. EMAIL: 
    - Extract email address exactly as written
    - Format: name@domain.com
+   - This is CRITICAL for name validation
 
 3. PHONE: 
    - Extract phone number from CV (not from WhatsApp)
@@ -155,7 +278,7 @@ CRITICAL EXTRACTION RULES:
    - DO NOT extract candidate's name as location
    - Look for address/location near contact details
 
-5. SKILLS (COMPREHENSIVE EXTRACTION - MOST IMPORTANT):
+5. SKILLS (COMPREHENSIVE EXTRACTION - EXTRACT EVERYTHING):
    
    YOU MUST EXTRACT **EVERY SINGLE SKILL** MENTIONED ANYWHERE IN THE ENTIRE CV.
    
@@ -168,105 +291,43 @@ CRITICAL EXTRACTION RULES:
    - Summary/Objective section
    - ANY mention of tools, technologies, or competencies
    
-   Categories to extract (NON-EXHAUSTIVE):
-   
-   **Programming Languages:**
-   Python, Java, JavaScript, TypeScript, C, C++, C#, Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, R, MATLAB, Perl, Shell/Bash, PowerShell, etc.
-   
-   **Web Technologies:**
-   HTML, CSS, SCSS, SASS, XML, JSON, REST API, GraphQL, WebSocket, AJAX, etc.
-   
-   **Frontend Frameworks/Libraries:**
-   React, Angular, Vue.js, Next.js, Nuxt.js, Svelte, jQuery, Bootstrap, Tailwind CSS, Material-UI, Ant Design, Redux, MobX, etc.
-   
-   **Backend Frameworks:**
-   Node.js, Express.js, Django, Flask, FastAPI, Spring Boot, .NET, Ruby on Rails, Laravel, ASP.NET, etc.
-   
-   **Mobile Development:**
-   React Native, Flutter, Swift, Kotlin, Xamarin, Ionic, Android SDK, iOS SDK, etc.
-   
-   **Databases:**
-   MySQL, PostgreSQL, MongoDB, Redis, Cassandra, Oracle, SQL Server, SQLite, DynamoDB, Firebase, Elasticsearch, Neo4j, etc.
-   
-   **Cloud Platforms:**
-   AWS (EC2, S3, Lambda, RDS, CloudFront, etc.), Azure, Google Cloud Platform (GCP), Heroku, DigitalOcean, Vercel, Netlify, etc.
-   
-   **DevOps & Tools:**
-   Docker, Kubernetes, Jenkins, GitLab CI/CD, GitHub Actions, Terraform, Ansible, Chef, Puppet, CircleCI, Travis CI, etc.
-   
-   **Version Control:**
-   Git, GitHub, GitLab, Bitbucket, SVN, Mercurial, etc.
-   
-   **Testing:**
-   Jest, Mocha, Chai, Pytest, JUnit, Selenium, Cypress, Postman, JMeter, etc.
-   
-   **Data Science & ML:**
-   TensorFlow, PyTorch, Keras, Scikit-learn, Pandas, NumPy, Matplotlib, Seaborn, OpenCV, NLTK, SpaCy, Hugging Face, etc.
-   
-   **Big Data:**
-   Hadoop, Spark, Kafka, Hive, Pig, Flink, etc.
-   
-   **Development Tools:**
-   VS Code, IntelliJ IDEA, PyCharm, Eclipse, Sublime Text, Vim, Emacs, Xcode, Android Studio, etc.
-   
-   **Project Management:**
-   JIRA, Trello, Asana, Monday.com, Confluence, Notion, etc.
-   
-   **Design Tools:**
-   Figma, Adobe XD, Sketch, Photoshop, Illustrator, Canva, etc.
-   
-   **Operating Systems:**
-   Linux, Ubuntu, CentOS, Windows, macOS, Unix, etc.
-   
-   **Methodologies:**
-   Agile, Scrum, Kanban, Waterfall, DevOps, CI/CD, TDD, BDD, Microservices, RESTful, etc.
-   
-   **Soft Skills:**
-   Leadership, Team Management, Communication, Problem Solving, Critical Thinking, Time Management, Collaboration, Presentation Skills, etc.
-   
-   **Languages Spoken:**
-   English, Hindi, Spanish, French, German, etc.
-   
-   **Domain Knowledge:**
-   Machine Learning, Artificial Intelligence, Data Analytics, Blockchain, IoT, Computer Vision, NLP, Cybersecurity, Cloud Computing, etc.
-   
-   **Other Technologies:**
-   Nginx, Apache, RabbitMQ, GraphQL, gRPC, OAuth, JWT, SOAP, WebRTC, Socket.io, etc.
+   Categories (extract ALL you find):
+   Programming Languages, Web Technologies, Frontend/Backend Frameworks, Mobile Development,
+   Databases, Cloud Platforms, DevOps Tools, Version Control, Testing, Data Science & ML,
+   Big Data, Development Tools, Project Management, Design Tools, Operating Systems,
+   Methodologies, Soft Skills, Languages Spoken, Domain Knowledge, etc.
    
    EXTRACTION STRATEGY:
-   - Read EVERY line of the CV carefully
+   - Read EVERY line carefully
    - Extract technical terms, tool names, framework names
-   - Include skills mentioned in project descriptions
-   - Include technologies listed in job responsibilities
-   - Include any certifications or courses
-   - Don't worry about categorization - just extract everything
-   - Remove obvious duplicates only
+   - Include skills from project descriptions
+   - Include technologies in job responsibilities
+   - Include certifications/courses
+   - Remove only obvious duplicates
    - Format: Comma-separated list
-   - NO LIMIT on number of skills - extract ALL
+   - NO LIMIT - extract ALL skills (aim for 30-50+ if present)
    
 6. WORK EXPERIENCE - CRITICAL FORMAT:
    
-   **EXTRACT ALL POSITIONS** and combine them into ONE line separated by commas.
+   **EXTRACT ALL POSITIONS** and combine into ONE line separated by commas.
    
    **MANDATORY FORMAT:**
    "Company Name - Job Title (Month Year - Month Year), Company Name - Job Title (Month Year - Month Year)"
    
    **EXAMPLES:**
-   - Single position: "MobiCollector Solutions - Software Developer Intern (Jan 2025 - May 2025)"
-   - Multiple positions: "MobiCollector Solutions - Software Developer Intern (Jan 2025 - May 2025), Sasken Technologies - Android Developer Intern (Jun 2025 - Jul 2025)"
+   - Single: "MobiCollector Solutions - Software Developer Intern (Jan 2025 - May 2025)"
+   - Multiple: "MobiCollector Solutions - Software Developer Intern (Jan 2025 - May 2025), Sasken Technologies - Android Developer Intern (Jun 2025 - Jul 2025)"
    
    **DATE FORMAT RULES:**
-   - ALWAYS put dates inside parentheses: (Month Year - Month Year)
-   - Convert "07/01/2025-06/05/2025" to "(Jan 2025 - May 2025)"
-   - Convert "June - July 2025" to "(Jun 2025 - Jul 2025)"
+   - ALWAYS put dates in parentheses: (Month Year - Month Year)
    - Use abbreviated months: Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
    - If currently working: use "Present" as end date
    
-   **WHAT NOT TO INCLUDE:**
-   - Location/city of company (remove ", Bangalore", ", Mumbai" etc.)
-   - Job descriptions or bullet points
-   - Responsibilities or achievements
-   - The "|" or "–" symbols between positions - use COMMA only
+   **REMOVE:**
+   - Company locations (", Bangalore", ", Mumbai")
+   - Job descriptions
+   - Bullet points
+   - Use COMMA between positions, not "|"
    
    **SPECIAL CASES:**
    - If fresher: "Fresher (No work experience)"
@@ -275,7 +336,6 @@ CRITICAL EXTRACTION RULES:
    - Extract HIGHEST or LATEST degree
    - Format: "Degree, Major/Specialization, Institution Name, Year"
    - Example: "B.Tech in Computer Science, IIT Mumbai, 2021"
-   - Example: "Master of Science in Data Science, XYZ University, 2023"
    - Include graduation year
 
 OUTPUT FORMAT (JSON only, no markdown):
@@ -284,21 +344,23 @@ OUTPUT FORMAT (JSON only, no markdown):
     "email": "email@domain.com",
     "phone": "phone number",
     "location": "City, State, Country",
-    "skills": "Python, JavaScript, React, Node.js, AWS, Docker, MongoDB, Machine Learning, TensorFlow, Git, JIRA, Agile, Communication, Leadership, English, Hindi, CSS, HTML, PostgreSQL, Redis, Kubernetes, Jenkins, Flask, Django, REST API, GraphQL, Postman, VS Code, Linux, Ubuntu, Pandas, NumPy, Scikit-learn, Problem Solving, Team Collaboration",
-    "experience": "MobiCollector Solutions - Software Developer Intern (Jan 2025 - May 2025), Sasken Technologies - Android Developer Intern (Jun 2025 - Jul 2025)",
+    "skills": "Python, JavaScript, React, Node.js, AWS, Docker, MongoDB, Machine Learning, TensorFlow, Git, JIRA, Agile",
+    "experience": "Company - Position (Jan 2025 - May 2025), Company2 - Position2 (Jun 2025 - Present)",
     "education": "B.Tech in Computer Science, ABC Institute, 2019"
 }
 
-IMPORTANT: 
-- Skills field should contain ALL skills found (50+ if present)
-- Experience field should contain ALL positions with dates in brackets
+CRITICAL REMINDERS:
+- Use EMAIL to validate and correct the NAME
+- If name is unclear, extract from email (john.doe@gmail.com → John Doe)
+- Extract ALL skills (30-50+ if present)
+- Format experience with dates in parentheses
 - If field not found: use "N/A"
-- Return ONLY valid JSON, no extra text."""
+- Return ONLY valid JSON"""
 
             user_prompt = f"""Extract ALL information from this CV. Pay special attention to:
-1. Extracting EVERY SINGLE SKILL mentioned anywhere
-2. Extracting ALL work experience positions with dates properly formatted in brackets
-3. Ensuring all companies are included, not just the first one
+1. Extracting the correct NAME (validate with email)
+2. Extracting EVERY SINGLE SKILL mentioned anywhere
+3. Extracting ALL work experience positions with dates properly formatted in brackets
 
 CV Text:
 {cv_text[:8000]}"""
@@ -330,10 +392,10 @@ CV Text:
             # Try to parse JSON
             cv_data = json.loads(response_text)
             
-            # Validate and clean the extracted data
+            # Validate and clean the extracted data (includes smart name validation)
             cv_data = self._validate_and_clean_data(cv_data)
             
-            logger.info(f"Successfully extracted CV data for: {cv_data.get('name', 'Unknown')}")
+            logger.info(f"✓ Successfully extracted CV data for: {cv_data.get('name', 'Unknown')}")
             
             # Count skills for logging
             skills = cv_data.get('skills', 'N/A')
@@ -397,7 +459,7 @@ CV Text:
     
     def _validate_and_clean_data(self, cv_data: Dict) -> Dict:
         """
-        Validate and clean extracted CV data
+        Enhanced validation with smart name extraction using email
         
         Args:
             cv_data: Raw extracted data
@@ -411,9 +473,39 @@ CV Text:
             if field not in cv_data or not cv_data[field]:
                 cv_data[field] = "N/A"
         
+        # ENHANCED: Smart name validation and correction using email
+        extracted_name = cv_data.get('name', 'N/A')
+        email = cv_data.get('email', 'N/A')
+        
+        if email != 'N/A':
+            if extracted_name == 'N/A':
+                # No name found - try to extract from email
+                email_name = extract_name_from_email(email)
+                if email_name:
+                    logger.info(f"✓ Name extracted from email: {email_name}")
+                    cv_data['name'] = email_name
+            else:
+                # Validate existing name against email
+                is_valid, confidence, suggested_name, reason = validate_name_with_email(extracted_name, email)
+                
+                logger.info(f"✓ Name validation: {reason} (confidence: {confidence}%)")
+                
+                # If confidence is low (< 40%), use suggested name from email
+                if confidence < 40 and suggested_name and suggested_name != 'N/A':
+                    logger.warning(f"⚠ Replacing '{extracted_name}' with '{suggested_name}' based on email")
+                    cv_data['name'] = suggested_name
+                # If confidence is medium (40-60%), check if email name is better
+                elif 40 <= confidence < 60:
+                    if suggested_name and suggested_name != extracted_name:
+                        # Check if suggested name is longer/more complete
+                        if len(suggested_name.split()) > len(extracted_name.split()):
+                            logger.info(f"✓ Using more complete name from email: {suggested_name}")
+                            cv_data['name'] = suggested_name
+        
         # Clean name - convert to Title Case
         if cv_data['name'] != 'N/A':
             cv_data['name'] = cv_data['name'].title()
+            logger.info(f"✓ Final name: {cv_data['name']}")
         
         # Clean phone - remove all special characters except + and digits
         if cv_data['phone'] != 'N/A':
@@ -449,21 +541,21 @@ CV Text:
                     unique_skills.append(skill)
             
             cv_data['skills'] = ', '.join(unique_skills)
-            logger.info(f"Cleaned skills: {len(unique_skills)} unique skills retained")
+            logger.info(f"✓ Cleaned skills: {len(unique_skills)} unique skills retained")
         
         # Clean and normalize experience format
         experience = cv_data.get('experience', 'N/A')
         if experience != 'N/A':
-            # Normalize date format to have brackets
             experience = self._normalize_experience_format(experience)
             cv_data['experience'] = experience
-            logger.info(f"Normalized experience: {experience}")
+            logger.info(f"✓ Normalized experience: {experience}")
         
         return cv_data
     
     def _fallback_extraction(self, cv_text: str) -> Optional[Dict]:
         """
         Fallback extraction using regex patterns with comprehensive skills
+        Includes smart name extraction from email
         
         Args:
             cv_text: Raw CV text
@@ -486,7 +578,7 @@ CV Text:
             
             lines = cv_text.split('\n')
             
-            # Extract email
+            # Extract email FIRST (needed for name validation)
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
             email_match = re.search(email_pattern, cv_text)
             if email_match:
@@ -511,6 +603,25 @@ CV Text:
                 if 2 <= len(words) <= 4 and (line.istitle() or line.isupper()):
                     cv_data['name'] = line.title()
                     break
+            
+            # SMART NAME VALIDATION: Use email to validate/correct name
+            if cv_data['email'] != 'N/A':
+                if cv_data['name'] == 'N/A':
+                    # No name found - extract from email
+                    email_name = extract_name_from_email(cv_data['email'])
+                    if email_name:
+                        logger.info(f"✓ Fallback: Name extracted from email: {email_name}")
+                        cv_data['name'] = email_name
+                else:
+                    # Validate name against email
+                    is_valid, confidence, suggested_name, reason = validate_name_with_email(
+                        cv_data['name'], cv_data['email']
+                    )
+                    logger.info(f"✓ Fallback name validation: {reason} (confidence: {confidence}%)")
+                    
+                    if confidence < 40 and suggested_name and suggested_name != 'N/A':
+                        logger.warning(f"⚠ Fallback: Replacing '{cv_data['name']}' with '{suggested_name}'")
+                        cv_data['name'] = suggested_name
             
             # Extract location
             for i, line in enumerate(lines[:30]):
@@ -579,7 +690,7 @@ CV Text:
             
             if skills_set:
                 cv_data['skills'] = ', '.join(sorted(skills_set, key=str.lower))
-                logger.info(f"Fallback extracted {len(skills_set)} skills")
+                logger.info(f"✓ Fallback extracted {len(skills_set)} skills")
             
             # Extract experience - ALL headers with proper date formatting
             experience_headers = []
@@ -627,7 +738,7 @@ CV Text:
                         cv_data['education'] = line.strip()
                         break
             
-            logger.info("Fallback extraction completed")
+            logger.info("✓ Fallback extraction completed")
             return cv_data
         
         except Exception as e:

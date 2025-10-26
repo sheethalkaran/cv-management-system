@@ -99,7 +99,7 @@ def validate_cv_data(cv_data):
 def process_cv_data(cv_data, message_data):
     """
     Common function to process and store CV data with enhanced validation
-    and duplicate detection
+    and duplicate detection - with cleaner confirmation messages
     
     Args:
         cv_data: Extracted CV information
@@ -130,73 +130,76 @@ def process_cv_data(cv_data, message_data):
             # Build confirmation message based on update status
             if is_update:
                 # This is an update - show "Updated" message
-                if has_optional_missing:
-                    confirmation_msg = f"""🔄 *Resume Updated Successfully!*
+                confirmation_msg = f"""🔄 *Resume Updated Successfully!*
 
-Your previous information has been replaced with:
-
-Name: {cv_data.get('name', 'N/A')}
-Email: {cv_data.get('email', 'N/A')}
-Phone: {cv_data.get('phone', 'N/A')}"""
-                    
-                    # Add present optional fields
-                    if cv_data.get('skills') and cv_data['skills'] != 'N/A':
-                        confirmation_msg += f"\nSkills: {cv_data.get('skills')}"
-                    if cv_data.get('experience') and cv_data['experience'] != 'N/A':
-                        confirmation_msg += f"\nExperience: {cv_data.get('experience')}"
-                    if cv_data.get('education') and cv_data['education'] != 'N/A':
-                        confirmation_msg += f"\nEducation: {cv_data.get('education')}"
-                    
-                    confirmation_msg += """\n\n📝 For a complete profile, please provide your remaining details or send your full resume as a PDF/DOCX file.
-
-We'll contact you soon!"""
-                else:
-                    # Complete data received - update
-                    confirmation_msg = f"""🔄 *Resume Updated Successfully!*
-
-Your previous information has been replaced with:
-
-Name: {cv_data.get('name', 'N/A')}
-Email: {cv_data.get('email', 'N/A')}
-Phone: {cv_data.get('phone', 'N/A')}
-Skills: {cv_data.get('skills', 'N/A')}
-Experience: {cv_data.get('experience', 'N/A')}
-Education: {cv_data.get('education', 'N/A')}
-
-Your updated application has been recorded. We'll contact you soon!"""
+📋 Basic Information:
+• Name: {cv_data.get('name', 'N/A')}
+• Email: {cv_data.get('email', 'N/A')}
+• Phone: {cv_data.get('phone', 'N/A')}"""
+                
+                # Add extracted fields summary (only if not N/A)
+                extracted_items = []
+                
+                if cv_data.get('skills') and cv_data['skills'] != 'N/A':
+                    skill_count = len([s.strip() for s in cv_data['skills'].split(',') if s.strip()])
+                    extracted_items.append(f"Skills ({skill_count} skills)")
+                
+                if cv_data.get('experience') and cv_data['experience'] != 'N/A' and cv_data['experience'] != 'Fresher (No work experience)':
+                    extracted_items.append("Work Experience")
+                
+                if cv_data.get('education') and cv_data['education'] != 'N/A':
+                    extracted_items.append("Education")
+                
+                if cv_data.get('location') and cv_data['location'] != 'N/A':
+                    extracted_items.append("Location")
+                
+                if extracted_items:
+                    confirmation_msg += f"\n\n✅ Extracted: {', '.join(extracted_items)}"
+                
+                confirmation_msg += "\n\nYour updated information has been recorded. We'll contact you soon!"
+                
             else:
                 # This is a new submission
+                confirmation_msg = f"""✅ *Resume Received Successfully!*
+
+📋 Basic Information:
+• Name: {cv_data.get('name', 'N/A')}
+• Email: {cv_data.get('email', 'N/A')}
+• Phone: {cv_data.get('phone', 'N/A')}"""
+                
+                # Add extracted fields summary (only if not N/A)
+                extracted_items = []
+                
+                if cv_data.get('skills') and cv_data['skills'] != 'N/A':
+                    skill_count = len([s.strip() for s in cv_data['skills'].split(',') if s.strip()])
+                    extracted_items.append(f"Skills ({skill_count} skills)")
+                
+                if cv_data.get('experience') and cv_data['experience'] != 'N/A' and cv_data['experience'] != 'Fresher (No work experience)':
+                    extracted_items.append("Work Experience")
+                
+                if cv_data.get('education') and cv_data['education'] != 'N/A':
+                    extracted_items.append("Education")
+                
+                if cv_data.get('location') and cv_data['location'] != 'N/A':
+                    extracted_items.append("Location")
+                
+                if extracted_items:
+                    confirmation_msg += f"\n\n✅ Extracted: {', '.join(extracted_items)}"
+                
+                # Check if anything is missing
                 if has_optional_missing:
-                    # Partial data received - ask for remaining details
-                    confirmation_msg = f"""✅ *Resume Received Successfully!*
-
-Name: {cv_data.get('name', 'N/A')}
-Email: {cv_data.get('email', 'N/A')}
-Phone: {cv_data.get('phone', 'N/A')}"""
+                    missing_items = []
+                    if not cv_data.get('skills') or cv_data['skills'] == 'N/A':
+                        missing_items.append("Skills")
+                    if not cv_data.get('experience') or cv_data['experience'] == 'N/A':
+                        missing_items.append("Experience")
+                    if not cv_data.get('education') or cv_data['education'] == 'N/A':
+                        missing_items.append("Education")
                     
-                    # Add present optional fields
-                    if cv_data.get('skills') and cv_data['skills'] != 'N/A':
-                        confirmation_msg += f"\nSkills: {cv_data.get('skills')}"
-                    if cv_data.get('experience') and cv_data['experience'] != 'N/A':
-                        confirmation_msg += f"\nExperience: {cv_data.get('experience')}"
-                    if cv_data.get('education') and cv_data['education'] != 'N/A':
-                        confirmation_msg += f"\nEducation: {cv_data.get('education')}"
-                    
-                    confirmation_msg += """\n\n📝 For a complete profile, please provide your remaining details or send your full resume as a PDF/DOCX file.
-
-We'll contact you soon!"""
-                else:
-                    # Complete data received
-                    confirmation_msg = f"""✅ *Resume Received Successfully!*
-
-Name: {cv_data.get('name', 'N/A')}
-Email: {cv_data.get('email', 'N/A')}
-Phone: {cv_data.get('phone', 'N/A')}
-Skills: {cv_data.get('skills', 'N/A')}
-Experience: {cv_data.get('experience', 'N/A')}
-Education: {cv_data.get('education', 'N/A')}
-
-Your application has been recorded. We'll contact you soon!"""
+                    if missing_items:
+                        confirmation_msg += f"\n\n📝 *Tip:* To complete your profile, you can send us your {', '.join(missing_items)} details or upload a complete resume."
+                
+                confirmation_msg += "\n\nYour application has been recorded. We'll contact you soon!"
             
             whatsapp_handler.send_message(
                 to_number=message_data['from'],
