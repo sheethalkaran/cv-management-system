@@ -36,8 +36,7 @@ This system automates the entire CV intake and processing workflow:
 | **PDF Processing** | pdfplumber, PyPDF2 |
 | **DOCX Processing** | python-docx |
 | **Spreadsheet Storage** | Google Sheets API |
-| **Environment Management** | python-dotenv |
-| **Authentication** | Google OAuth2 |
+
 
 ---
 
