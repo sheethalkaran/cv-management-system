@@ -99,6 +99,7 @@ def validate_cv_data(cv_data):
 def process_cv_data(cv_data, message_data):
     """
     Common function to process and store CV data with enhanced validation
+    and duplicate detection
     
     Args:
         cv_data: Extracted CV information
@@ -119,35 +120,74 @@ def process_cv_data(cv_data, message_data):
         cv_data['phone_number'] = message_data['from']
         cv_data['submission_timestamp'] = message_data['timestamp']
         
-        # Save to Google Sheets
-        row_number = sheets_manager.append_cv_data(cv_data)
+        # Save to Google Sheets (returns tuple: (row_number, is_update))
+        result = sheets_manager.append_cv_data(cv_data)
         
-        if row_number:
-            logger.info(f"Data saved to Google Sheets at row {row_number}")
+        if result:
+            row_number, is_update = result
+            logger.info(f"Data {'updated' if is_update else 'saved'} to Google Sheets at row {row_number}")
             
-            # Build confirmation message
-            if has_optional_missing:
-                # Partial data received - ask for remaining details
-                confirmation_msg = f"""✅ Resume received successfully!
+            # Build confirmation message based on update status
+            if is_update:
+                # This is an update - show "Updated" message
+                if has_optional_missing:
+                    confirmation_msg = f"""🔄 *Resume Updated Successfully!*
+
+Your previous information has been replaced with:
 
 Name: {cv_data.get('name', 'N/A')}
 Email: {cv_data.get('email', 'N/A')}
 Phone: {cv_data.get('phone', 'N/A')}"""
-                
-                # Add present optional fields
-                if cv_data.get('skills') and cv_data['skills'] != 'N/A':
-                    confirmation_msg += f"\nSkills: {cv_data.get('skills')}"
-                if cv_data.get('experience') and cv_data['experience'] != 'N/A':
-                    confirmation_msg += f"\nExperience: {cv_data.get('experience')}"
-                if cv_data.get('education') and cv_data['education'] != 'N/A':
-                    confirmation_msg += f"\nEducation: {cv_data.get('education')}"
-                
-                confirmation_msg += """\n\n📝 For a complete profile, please provide your remaining details (Skills, Experience, Education) or send your full resume as a PDF/DOCX file.
+                    
+                    # Add present optional fields
+                    if cv_data.get('skills') and cv_data['skills'] != 'N/A':
+                        confirmation_msg += f"\nSkills: {cv_data.get('skills')}"
+                    if cv_data.get('experience') and cv_data['experience'] != 'N/A':
+                        confirmation_msg += f"\nExperience: {cv_data.get('experience')}"
+                    if cv_data.get('education') and cv_data['education'] != 'N/A':
+                        confirmation_msg += f"\nEducation: {cv_data.get('education')}"
+                    
+                    confirmation_msg += """\n\n📝 For a complete profile, please provide your remaining details or send your full resume as a PDF/DOCX file.
 
 We'll contact you soon!"""
+                else:
+                    # Complete data received - update
+                    confirmation_msg = f"""🔄 *Resume Updated Successfully!*
+
+Your previous information has been replaced with:
+
+Name: {cv_data.get('name', 'N/A')}
+Email: {cv_data.get('email', 'N/A')}
+Phone: {cv_data.get('phone', 'N/A')}
+Skills: {cv_data.get('skills', 'N/A')}
+Experience: {cv_data.get('experience', 'N/A')}
+Education: {cv_data.get('education', 'N/A')}
+
+Your updated application has been recorded. We'll contact you soon!"""
             else:
-                # Complete data received
-                confirmation_msg = f"""✅ Resume received successfully!
+                # This is a new submission
+                if has_optional_missing:
+                    # Partial data received - ask for remaining details
+                    confirmation_msg = f"""✅ *Resume Received Successfully!*
+
+Name: {cv_data.get('name', 'N/A')}
+Email: {cv_data.get('email', 'N/A')}
+Phone: {cv_data.get('phone', 'N/A')}"""
+                    
+                    # Add present optional fields
+                    if cv_data.get('skills') and cv_data['skills'] != 'N/A':
+                        confirmation_msg += f"\nSkills: {cv_data.get('skills')}"
+                    if cv_data.get('experience') and cv_data['experience'] != 'N/A':
+                        confirmation_msg += f"\nExperience: {cv_data.get('experience')}"
+                    if cv_data.get('education') and cv_data['education'] != 'N/A':
+                        confirmation_msg += f"\nEducation: {cv_data.get('education')}"
+                    
+                    confirmation_msg += """\n\n📝 For a complete profile, please provide your remaining details or send your full resume as a PDF/DOCX file.
+
+We'll contact you soon!"""
+                else:
+                    # Complete data received
+                    confirmation_msg = f"""✅ *Resume Received Successfully!*
 
 Name: {cv_data.get('name', 'N/A')}
 Email: {cv_data.get('email', 'N/A')}
@@ -175,15 +215,14 @@ Your application has been recorded. We'll contact you soon!"""
         logger.error(f"Error processing CV data: {str(e)}")
         return False
 
-
 def extract_simple_cv_data(text):
     """
     Rule-based extraction for simple text messages
     
     Logic:
-    - First line (if no special chars) = Name
+    - Look for "Label: Value" format (e.g., "Name: John Doe")
     - Line with @ = Email
-    - Line with only digits = Phone
+    - Line with Phone: or digits = Phone
     - Line with multiple commas = Skills
     - Other lines = Experience/Education
     
@@ -210,94 +249,130 @@ def extract_simple_cv_data(text):
         
         used_lines = set()
         
-        # Extract email (line with @)
+        # Process each line looking for "Label: Value" format
         for i, line in enumerate(lines):
-            if '@' in line and re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', line):
+            line_lower = line.lower()
+            
+            # Check for "Name:" pattern
+            if line_lower.startswith('name:'):
+                cv_data['name'] = line.split(':', 1)[1].strip().title()
+                used_lines.add(i)
+                logger.info(f"Extracted name: {cv_data['name']}")
+                continue
+            
+            # Check for "Email:" pattern OR line with @
+            if line_lower.startswith('email:'):
+                email_value = line.split(':', 1)[1].strip()
+                if '@' in email_value:
+                    cv_data['email'] = email_value
+                    used_lines.add(i)
+                    logger.info(f"Extracted email: {cv_data['email']}")
+                continue
+            elif '@' in line and cv_data['email'] == 'N/A':
                 email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', line)
-                cv_data['email'] = email_match.group(0)
-                used_lines.add(i)
-                logger.info(f"Extracted email: {cv_data['email']}")
-                break
-        
-        # Extract phone (line with digits, 10+ chars)
-        for i, line in enumerate(lines):
-            if i in used_lines:
+                if email_match:
+                    cv_data['email'] = email_match.group(0)
+                    used_lines.add(i)
+                    logger.info(f"Extracted email: {cv_data['email']}")
                 continue
-            # Remove all non-digits
-            digits = re.sub(r'\D', '', line)
-            if len(digits) >= 10 and len(digits) <= 15:
-                cv_data['phone'] = digits
-                used_lines.add(i)
-                logger.info(f"Extracted phone: {cv_data['phone']}")
-                break
-        
-        # Extract skills (line with 2+ commas or keyword "skills:")
-        for i, line in enumerate(lines):
-            if i in used_lines:
+            
+            # Check for "Phone:" pattern OR line with digits
+            if line_lower.startswith('phone:'):
+                phone_value = line.split(':', 1)[1].strip()
+                digits = re.sub(r'\D', '', phone_value)
+                if len(digits) >= 10 and len(digits) <= 15:
+                    cv_data['phone'] = digits
+                    used_lines.add(i)
+                    logger.info(f"Extracted phone: {cv_data['phone']}")
                 continue
-            if line.lower().startswith('skills:'):
+            elif cv_data['phone'] == 'N/A':
+                digits = re.sub(r'\D', '', line)
+                if len(digits) >= 10 and len(digits) <= 15 and len(line) < 30:
+                    cv_data['phone'] = digits
+                    used_lines.add(i)
+                    logger.info(f"Extracted phone: {cv_data['phone']}")
+                continue
+            
+            # Check for "Skills:" pattern OR line with 2+ commas
+            if line_lower.startswith('skills:'):
                 cv_data['skills'] = line.split(':', 1)[1].strip()
                 used_lines.add(i)
                 logger.info(f"Extracted skills: {cv_data['skills']}")
-                break
-            elif line.count(',') >= 2:
+                continue
+            elif cv_data['skills'] == 'N/A' and line.count(',') >= 2:
                 cv_data['skills'] = line
                 used_lines.add(i)
                 logger.info(f"Extracted skills: {cv_data['skills']}")
-                break
-        
-        # Extract name (first unused line, alphabetic, 2-4 words)
-        for i, line in enumerate(lines):
-            if i in used_lines:
                 continue
-            # Check if line looks like a name
-            words = line.split()
-            if (2 <= len(words) <= 4 and 
-                all(word.replace('.', '').isalpha() for word in words) and
-                len(line) < 50):
-                cv_data['name'] = line.title()
-                used_lines.add(i)
-                logger.info(f"Extracted name: {cv_data['name']}")
-                break
-        
-        # If still no name, use first line if it's not too long and not a number
-        if cv_data['name'] == 'N/A' and len(lines) > 0:
-            first_line = lines[0]
-            if 0 not in used_lines and len(first_line) < 50 and not first_line.isdigit():
-                cv_data['name'] = first_line.title()
-                used_lines.add(0)
-                logger.info(f"Extracted name from first line: {cv_data['name']}")
-        
-        # Extract experience (line with "experience:" or contains "-")
-        for i, line in enumerate(lines):
-            if i in used_lines:
-                continue
-            if line.lower().startswith('experience:'):
+            
+            # Check for "Experience:" pattern
+            if line_lower.startswith('experience:'):
                 cv_data['experience'] = line.split(':', 1)[1].strip()
                 used_lines.add(i)
                 logger.info(f"Extracted experience: {cv_data['experience']}")
-                break
-            elif ' - ' in line and len(line) > 15:
-                cv_data['experience'] = line
-                used_lines.add(i)
-                logger.info(f"Extracted experience: {cv_data['experience']}")
-                break
-        
-        # Extract education (line with "education:" or degree keywords)
-        degree_keywords = ['b.tech', 'btech', 'm.tech', 'mtech', 'bachelor', 'master', 'mba', 'degree', 'university', 'college']
-        for i, line in enumerate(lines):
-            if i in used_lines:
                 continue
-            if line.lower().startswith('education:'):
+            
+            # Check for "Education:" pattern
+            if line_lower.startswith('education:'):
                 cv_data['education'] = line.split(':', 1)[1].strip()
                 used_lines.add(i)
                 logger.info(f"Extracted education: {cv_data['education']}")
-                break
-            elif any(keyword in line.lower() for keyword in degree_keywords):
-                cv_data['education'] = line
+                continue
+            
+            # Check for "Location:" pattern
+            if line_lower.startswith('location:'):
+                cv_data['location'] = line.split(':', 1)[1].strip()
                 used_lines.add(i)
-                logger.info(f"Extracted education: {cv_data['education']}")
-                break
+                logger.info(f"Extracted location: {cv_data['location']}")
+                continue
+        
+        # Fallback: If name still not found, use first unused line
+        if cv_data['name'] == 'N/A':
+            for i, line in enumerate(lines):
+                if i in used_lines:
+                    continue
+                words = line.split()
+                if (2 <= len(words) <= 4 and 
+                    all(word.replace('.', '').isalpha() for word in words) and
+                    len(line) < 50):
+                    cv_data['name'] = line.title()
+                    used_lines.add(i)
+                    logger.info(f"Extracted name (fallback): {cv_data['name']}")
+                    break
+        
+        # Fallback: If skills still not found, look for lines with commas
+        if cv_data['skills'] == 'N/A':
+            for i, line in enumerate(lines):
+                if i in used_lines:
+                    continue
+                if ',' in line and len(line) > 10:
+                    cv_data['skills'] = line
+                    used_lines.add(i)
+                    logger.info(f"Extracted skills (fallback): {cv_data['skills']}")
+                    break
+        
+        # Fallback: Extract experience (line with "-" or company indicators)
+        if cv_data['experience'] == 'N/A':
+            for i, line in enumerate(lines):
+                if i in used_lines:
+                    continue
+                if (' - ' in line and len(line) > 15) or any(word in line.lower() for word in ['intern', 'developer', 'engineer', 'manager']):
+                    cv_data['experience'] = line
+                    used_lines.add(i)
+                    logger.info(f"Extracted experience (fallback): {cv_data['experience']}")
+                    break
+        
+        # Fallback: Extract education (degree keywords)
+        if cv_data['education'] == 'N/A':
+            degree_keywords = ['b.tech', 'btech', 'm.tech', 'mtech', 'bachelor', 'master', 'mba', 'degree', 'university', 'college']
+            for i, line in enumerate(lines):
+                if i in used_lines:
+                    continue
+                if any(keyword in line.lower() for keyword in degree_keywords):
+                    cv_data['education'] = line
+                    used_lines.add(i)
+                    logger.info(f"Extracted education (fallback): {cv_data['education']}")
+                    break
         
         # Log summary
         logger.info(f"Rule-based extraction result: Name={cv_data['name']}, Email={cv_data['email']}, Phone={cv_data['phone']}")
@@ -307,8 +382,7 @@ def extract_simple_cv_data(text):
     except Exception as e:
         logger.error(f"Error in rule-based extraction: {str(e)}")
         return None
-
-
+    
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """
